@@ -749,6 +749,7 @@
                 delete student.t1Exam; delete student.t1Eval; delete student.t2Exam; delete student.t2Eval; delete student.final;
                 if (student.id !== undefined && student.id !== null) student.id = typeof student.id === 'string' && student.id.trim() !== '' ? (Number.isFinite(Number(student.id)) ? Number(student.id) : student.id) : student.id;
                 if (!Array.isArray(student.absenceLog)) student.absenceLog = [];
+                student.escapedCount = Math.max(0, Number(student.escapedCount) || 0);
                 if (!Array.isArray(student.behaviorLog)) student.behaviorLog = [];
                 student.behaviorLog.forEach(log => { if (log && log.stage) log.stage = convertSchoolTerm(log.stage); });
             });
@@ -1947,7 +1948,7 @@
                                 </select>
                             </div>
                         </div>
-                        <p class="text-[10px] text-slate-500 font-semibold">درجة الحضور من 10: تُخصم درجتان عن كل غياب، وتصبح صفراً عند 5 غيابات أو أكثر، بغضّ النظر عن عدد مرات الحضور؛ ويُحسب ذلك للفصل والشهر المحددين.</p>
+                        <p class="text-[10px] text-slate-500 font-semibold">درجة الحضور من 10: تُخصم درجتان عن كل غياب و3 درجات عن كل هروب، وتصبح صفراً عند 5 غيابات أو أكثر؛ ويُحسب ذلك للفصل والشهر المحددين.</p>
                         <div>
                             <label class="block text-[10px] font-extrabold text-slate-600 mb-1">المادة الدراسية:</label>
                             <select id="att-subject-select" onchange="clearAttendancePreview()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-700 outline-none focus:border-slate-900">
@@ -2007,7 +2008,7 @@
                     if (Number.isFinite(count) && count > 0) student.attendanceCount = Math.max(0, count - 1);
                     return;
                 }
-                if (rawStatus !== 'absent' && rawStatus !== 'excused') return;
+                if (rawStatus !== 'absent' && rawStatus !== 'excused' && rawStatus !== 'escaped' && rawStatus !== 'escape') return;
 
                 const sameStudentSessionStillLogged = (appState.savedSessions || []).some(other => {
                     if (!other || String(other.date || '') !== String(sessToDelete.date || '')) return false;
@@ -2016,10 +2017,11 @@
                         normalizeAcademicText(other.studyType || 'صباحي') !== normalizeAcademicText(sessToDelete.studyType || 'صباحي')) return false;
                     const otherRecords = other.records || {};
                     const otherStatus = otherRecords[student.id] !== undefined ? otherRecords[student.id] : otherRecords[String(student.id)];
-                    return otherStatus === 'absent' || otherStatus === 'excused';
+                    return otherStatus === 'absent' || otherStatus === 'excused' || otherStatus === 'escaped' || otherStatus === 'escape';
                 });
                 if (!sameStudentSessionStillLogged && Array.isArray(student.absenceLog)) {
-                    student.absenceLog = student.absenceLog.filter(log => !(String(log.date || '') === String(sessToDelete.date || '') && log.status === (rawStatus === 'absent' ? 'غائب' : 'مجاز')));
+                    const statusLabel = rawStatus === 'absent' ? 'غائب' : rawStatus === 'excused' ? 'مجاز' : 'هروب';
+                    student.absenceLog = student.absenceLog.filter(log => !(String(log.date || '') === String(sessToDelete.date || '') && log.status === statusLabel));
                 }
             });
 
@@ -2131,7 +2133,8 @@
                         <div class="flex gap-1" id="att-btns-${st.id}">
                             <button type="button" onclick="setSingleAttendanceStatus(${st.id}, 'present')" class="px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'present' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}">حاضر</button>
                             <button type="button" onclick="setSingleAttendanceStatus(${st.id}, 'absent')" class="px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'absent' ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}">غائب</button>
-                            <button type="button" onclick="setSingleAttendanceStatus(${st.id}, 'excused')" class="px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'excused' ? 'bg-amber-500 text-slate-900 shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}">مجاز</button>
+                            <button type="button" onclick="setSingleAttendanceStatus(${st.id}, 'excused')" class="px-1.5 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'excused' ? 'bg-amber-500 text-slate-900 shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}">مجاز</button>
+                            <button type="button" onclick="setSingleAttendanceStatus(${st.id}, 'escaped')" class="px-1.5 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'escaped' ? 'bg-violet-600 text-white shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}">هروب</button>
                         </div>
                     </div>
                 `;
@@ -2155,10 +2158,11 @@
             const btnBox = document.getElementById(`att-btns-${studentId}`);
             if (!btnBox) return;
             const buttons = btnBox.querySelectorAll('button');
-            if (buttons.length >= 3) {
+            if (buttons.length >= 4) {
                 buttons[0].className = `px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'present' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`;
                 buttons[1].className = `px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'absent' ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`;
-                buttons[2].className = `px-2 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'excused' ? 'bg-amber-500 text-slate-900 shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}`;
+                buttons[2].className = `px-1.5 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'excused' ? 'bg-amber-500 text-slate-900 shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}`;
+                buttons[3].className = `px-1.5 py-1 rounded-xl text-[10px] font-bold transition-all ${status === 'escaped' ? 'bg-violet-600 text-white shadow-xs font-extrabold' : 'bg-slate-200 text-slate-600'}`;
             }
         }
 
@@ -2245,12 +2249,16 @@
                     currentStudent.absenceLog.push({ date: dateVal, day: dayText, status: "غائب" });
                 } else if (stStatus === 'excused') {
                     currentStudent.absenceLog.push({ date: dateVal, day: dayText, status: "مجاز" });
+                } else if (stStatus === 'escaped' || stStatus === 'escape') {
+                    currentStudent.absenceLog.push({ date: dateVal, day: dayText, status: "هروب" });
                 }
 
                 let absCount = currentStudent.absenceLog.filter(l => l.status === 'غائب').length;
                 let excCount = currentStudent.absenceLog.filter(l => l.status === 'مجاز').length;
+                let escapeCount = currentStudent.absenceLog.filter(l => l.status === 'هروب').length;
                 currentStudent.absenceCount = absCount;
                 currentStudent.excusedCount = excCount;
+                currentStudent.escapedCount = escapeCount;
                 if (!currentStudent.attendanceCount) currentStudent.attendanceCount = 14;
                 if (stStatus === 'present' && !editingSessionId) {
                     currentStudent.attendanceCount += 1;
@@ -2295,11 +2303,11 @@
         }
 
         function getAttendanceGradeDetails(student, gradeTerm, gradeMonth, subjectName = null) {
-            if (!student || !gradeTerm || !gradeMonth) return { sessionCount: 0, presentCount: 0, absentCount: 0, score: null };
+            if (!student || !gradeTerm || !gradeMonth) return { sessionCount: 0, presentCount: 0, absentCount: 0, escapedCount: 0, score: null };
             const requestedSubject = String(subjectName || '').trim();
             const subject = (!requestedSubject || requestedSubject === 'all') ? String(student.subject || '').trim() : requestedSubject;
             const norm = value => normalizeAcademicText(value || '');
-            let sessionCount = 0, presentCount = 0, absentCount = 0;
+            let sessionCount = 0, presentCount = 0, absentCount = 0, escapedCount = 0;
             (appState.savedSessions || []).forEach(session => {
                 if (!session || String(session.gradeTerm || '') !== String(gradeTerm) || Number(session.gradeMonth) !== Number(gradeMonth)) return;
                 if (norm(session.className) !== norm(student.class) || norm(session.section) !== norm(student.section) || norm(session.studyType || 'صباحي') !== norm(student.studyType || 'صباحي')) return;
@@ -2311,15 +2319,16 @@
                 sessionCount++;
                 if (status === 'present') presentCount++;
                 else if (status === 'absent') absentCount++;
-                // المجاز لا ينقص درجة الحضور ولا يدخل في مقام نسبة الحضور.
+                else if (status === 'escaped' || status === 'escape') escapedCount++;
+                // المجاز لا ينقص درجة الحضور ولا يدخل في حساب الخصم.
             });
-            // درجة الحضور تُحسب من عدد الغيابات فقط: خصم درجتين لكل غياب،
-            // وعند 5 غيابات أو أكثر تصبح الدرجة صفراً مهما كان عدد مرات الحضور.
+            // درجة الحضور من 10: خصم درجتين لكل غياب و3 درجات لكل هروب،
+            // مع الإبقاء على قاعدة جعل الدرجة صفراً عند 5 غيابات أو أكثر.
             // تبقى الدرجة فارغة إذا لم توجد أي جلسة مرتبطة بهذا الفصل والشهر والمادة.
             const score = sessionCount > 0
-                ? (absentCount >= 5 ? 0 : Math.max(0, Math.min(10, 10 - (absentCount * 2))))
+                ? (absentCount >= 5 ? 0 : Math.max(0, Math.min(10, 10 - (absentCount * 2) - (escapedCount * 3))))
                 : null;
-            return { sessionCount, presentCount, absentCount, score };
+            return { sessionCount, presentCount, absentCount, escapedCount, score };
         }
 
         function getLinkedAttendanceGrade(student, gradeTerm, gradeMonth, subjectName = null, fallbackValue = '') {
@@ -2679,7 +2688,7 @@
                     if (component.key === 'Attendance') {
                         value = getLinkedAttendanceGrade(student, prefix, month, subjectContext, record[`${prefix}Month${month}Attendance`]);
                         const displayValue = value === '' ? '' : gradeInputValue(value, 10);
-                        return `<td class="grade-data-cell text-center align-middle"><input type="number" min="0" max="10" step="1" inputmode="numeric" readonly aria-readonly="true" id="grade-${prefix}-m${month}-${component.key}-${student.id}" value="${displayValue}" aria-label="درجة الحضور المحسوبة للطالب ${escapeHtml(student.name)} من 10" class="grade-cell-input font-bold text-[11px] text-emerald-800 bg-emerald-50 cursor-not-allowed" title="تُحسب من عدد الغيابات في الفصل والشهر المحددين: خصم درجتين لكل غياب وصفر عند 5 غيابات أو أكثر (من 10)"></td>`;
+                        return `<td class="grade-data-cell text-center align-middle"><input type="number" min="0" max="10" step="1" inputmode="numeric" readonly aria-readonly="true" id="grade-${prefix}-m${month}-${component.key}-${student.id}" value="${displayValue}" aria-label="درجة الحضور المحسوبة للطالب ${escapeHtml(student.name)} من 10" class="grade-cell-input font-bold text-[11px] text-emerald-800 bg-emerald-50 cursor-not-allowed" title="تُحسب من جلسات الفصل والشهر المحددين: خصم درجتين لكل غياب و3 لكل هروب وصفر عند 5 غيابات أو أكثر (من 10)"></td>`;
                     }
                     return `<td class="grade-data-cell text-center align-middle"><input type="number" min="0" max="${component.max}" step="1" inputmode="numeric" oninput="sanitizeGradeInteger(this, ${component.max})" id="grade-${prefix}-m${month}-${component.key}-${student.id}" value="${value}" aria-label="${component.label} للطالب ${escapeHtml(student.name)}" class="grade-cell-input font-bold text-[11px] text-slate-800" title="${component.label} (من ${component.max})"></td>`;
                 }).join('');
@@ -3217,10 +3226,12 @@
             const logs = Array.isArray(attendanceLogs) ? attendanceLogs : [];
             const absenceLogs = logs.filter(log => log && log.status === 'غائب');
             const excusedLogs = logs.filter(log => log && log.status === 'مجاز');
+            const escapedLogs = logs.filter(log => log && log.status === 'هروب');
             const safeAttendance = Math.max(0, Number(attendanceCount) || 0);
             const safeAbsent = Math.max(0, Number(absentCount) || 0);
             const safeExcused = Math.max(0, Number(excusedCount) || 0);
-            const totalLectures = safeAttendance + safeAbsent + safeExcused;
+            const safeEscaped = Math.max(0, Number(flags.escapedCount == null ? escapedLogs.length : flags.escapedCount) || 0);
+            const totalLectures = safeAttendance + safeAbsent + safeExcused + safeEscaped;
             const seenDates = new Set();
             const absenceDates = absenceLogs.map(log => `${log.day ? log.day + ' ' : ''}${log.date || ''}`.trim()).filter(Boolean).filter(date => {
                 if (seenDates.has(date)) return false;
@@ -3231,6 +3242,7 @@
                 attendanceCount: safeAttendance,
                 absentCount: safeAbsent,
                 excusedCount: safeExcused,
+                escapedCount: safeEscaped,
                 totalLectures,
                 absenceRate: totalLectures ? safeAbsent / totalLectures * 100 : 0,
                 absenceLogs,
@@ -3244,7 +3256,7 @@
 
         function getReportSessionMetrics(student, subjectName = 'all', classFilterVal = 'all', fromDate = '', toDate = '') {
             const sessions = getReportSessionsForStudent(student, subjectName, classFilterVal, fromDate, toDate);
-            let attendanceCount = 0, absentCount = 0, excusedCount = 0;
+            let attendanceCount = 0, absentCount = 0, excusedCount = 0, escapedCount = 0;
             let hasStudentRecord = false;
             const logs = [];
             sessions.forEach(session => {
@@ -3259,6 +3271,9 @@
                 } else if (code === 'excused') {
                     excusedCount++;
                     logs.push({ date: session.date || '', day: getDayName(session.date), status: 'مجاز' });
+                } else if (code === 'escaped' || code === 'escape') {
+                    escapedCount++;
+                    logs.push({ date: session.date || '', day: getDayName(session.date), status: 'هروب' });
                 } else {
                     attendanceCount++;
                 }
@@ -3266,7 +3281,8 @@
             return createAttendanceMetrics(attendanceCount, absentCount, excusedCount, logs, {
                 hasSubjectRecords: hasStudentRecord,
                 hasSessionRecords: hasStudentRecord,
-                hasApplicableSessions: sessions.length > 0
+                hasApplicableSessions: sessions.length > 0,
+                escapedCount
             });
         }
 
@@ -3293,10 +3309,11 @@
                 const key = String(student && student.id);
                 if (!Object.prototype.hasOwnProperty.call(records, key) || !records[key]) return;
                 const code = String(records[key]).toLowerCase();
-                statuses.push(code === 'absent' ? 'غائب' : code === 'excused' ? 'مجاز' : 'حاضر');
+                statuses.push(code === 'absent' ? 'غائب' : code === 'excused' ? 'مجاز' : (code === 'escaped' || code === 'escape') ? 'هروب' : 'حاضر');
             });
             if (statuses.length) {
                 if (statuses.includes('غائب')) return 'غائب';
+                if (statuses.includes('هروب')) return 'هروب';
                 if (statuses.includes('مجاز')) return 'مجاز';
                 return 'حاضر';
             }
@@ -3316,11 +3333,13 @@
             const logs = allLogs.filter(log => (!fromDate || String(log.date || '') >= fromDate) && (!toDate || String(log.date || '') <= toDate));
             const absenceLogs = logs.filter(log => log.status === 'غائب');
             const excusedLogs = logs.filter(log => log.status === 'مجاز');
+            const escapedLogs = logs.filter(log => log.status === 'هروب');
             const isPeriodReport = Boolean(fromDate || toDate);
             const absentCount = isPeriodReport ? absenceLogs.length : Math.max(Number(student && student.absenceCount) || 0, absenceLogs.length);
             const excusedCount = isPeriodReport ? excusedLogs.length : Math.max(Number(student && student.excusedCount) || 0, excusedLogs.length);
+            const escapedCount = isPeriodReport ? escapedLogs.length : Math.max(Number(student && student.escapedCount) || 0, escapedLogs.length);
             const attendanceCount = isPeriodReport ? 0 : (Number(student && student.attendanceCount) || 0);
-            return createAttendanceMetrics(attendanceCount, absentCount, excusedCount, [...absenceLogs, ...excusedLogs], {});
+            return createAttendanceMetrics(attendanceCount, absentCount, excusedCount, [...absenceLogs, ...excusedLogs, ...escapedLogs], { escapedCount });
         }
 
         function getSubjectAttendanceMetrics(student, subjectName, classFilterVal = 'all', fromDate = '', toDate = '') {
@@ -3402,7 +3421,7 @@
                             <p class="text-[10px] font-bold text-slate-700">متابعة الحضور، الغياب، والإجازات الرسمية</p>
                         </div>
 
-                        ${renderReportButton('att_absence_list', 'قائمة الغياب والمجازين', 'عرض وطباعة أسماء الطلاب الغائبين والمجازين فقط مع إحصائية الحضور والغياب والإجازات', 'fa-user-xmark', 'bg-rose-50 text-rose-600')}
+                        ${renderReportButton('att_absence_list', 'قائمة الغياب والمجازين والهروب', 'عرض وطباعة أسماء الطلاب الغائبين والمجازين والطلاب المسجل عليهم هروب مع الإحصائيات', 'fa-user-xmark', 'bg-rose-50 text-rose-600')}
                         ${renderReportButton('att_by_date', 'تقرير حضور يومي', 'كشف الحضور اليومي للطلاب حسب الصف والشعبة والدراسة والتاريخ المحدد', 'fa-calendar-day', 'bg-sky-50 text-sky-600')}
                         ${renderReportButton('att_monthly', 'تقرير الحضور الشهري', 'طباعة تقرير شهري أو فترة زمنية محددة للحضور حسب الصف والشعبة والدراسة', 'fa-calendar-days', 'bg-teal-50 text-teal-600')}
                         ${renderReportButton('att_by_student', 'حضور طالب أو كل الطلاب', 'سجل حضور وغياب طالب محدد أو طباعة كشف حضور لجميع طلاب الشعبة مع تواريخ الغيابات', 'fa-user-tag', 'bg-indigo-50 text-indigo-600')}
@@ -3487,10 +3506,9 @@
             // ترويسة الطباعة الرسمية: المدرسة والقسم والمدرس بخط 11 وبنقاط تعداد
             function getPrintableHeader(stageId) {
                 const info = appState.schoolInfo || {};
-                const institutionParts = String(info.name || '').split(/\s*[-–—]\s*/);
-                const universityName = info.name || info.school || institutionParts[0] || 'المدرسة';
-                const collegeName = info.name || institutionParts[1] || 'المدرسة';
-                const departmentName = info.department || 'القسم';
+                const schoolName = String(info.name || info.school || 'المدرسة');
+                const collegeName = String(info.college || '').trim();
+                const departmentName = info.department || '';
                 let logoHtml = info.logo
                     ? `<img src="${info.logo}" style="width: 75px; height: 75px; object-fit: contain; display: block; margin: 0 auto;" class="rounded-xl">`
                     : `<div style="width: 65px; height: 65px; margin: 0 auto;" class="rounded-2xl border-2 border-slate-900 flex items-center justify-center text-slate-900 text-3xl font-black"><i class="fa-solid fa-graduation-cap"></i></div>`;
@@ -3500,10 +3518,10 @@
                     <div class="print-only-header mb-2 pb-2 border-b-2 border-slate-900">
                         <div style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%;">
                             <div class="print-top-right-meta text-right">
-                                <div class="print-meta-line">${universityName}</div>
-                                <div class="print-meta-line">${collegeName}</div>
-                                <div class="print-meta-line">${departmentName}</div>
-                                <div class="print-meta-line">${info.teacher || ''}</div>
+                                <div class="print-meta-line">${escapeHtml(schoolName)}</div>
+                                ${collegeName && normalizeAcademicText(collegeName) !== normalizeAcademicText(schoolName) ? `<div class="print-meta-line">${escapeHtml(collegeName)}</div>` : ''}
+                                ${departmentName ? `<div class="print-meta-line">${escapeHtml(departmentName)}</div>` : ''}
+                                ${info.teacher ? `<div class="print-meta-line">${escapeHtml(info.teacher)}</div>` : ''}
                             </div>
                             
                             <!-- الشعار في المنتصف تماماً -->
@@ -3567,7 +3585,7 @@
 
             // 1. تقرير قائمة الغياب والمجازين
             if (reportKey === 'att_absence_list') {
-                titleEl.innerText = "قائمة الغياب والمجازين";
+                titleEl.innerText = "قائمة الغياب والمجازين والهروب";
                 iconEl.className = "fa-solid fa-user-xmark";
                 bodyEl.innerHTML = getPrintableHeader("rep-abs-stage") + `
                     <div class="no-print grid grid-cols-2 gap-2 mb-2.5 print-hidden-control">
@@ -3584,7 +3602,7 @@
                         </div>
                     </div>
                     ${getSearchInputHtml("updateAbsenceListReport")}
-                    <div id="absence-stats-box" class="grid grid-cols-3 gap-2 text-center text-xs font-bold mb-3"></div>
+                    <div id="absence-stats-box" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs font-bold mb-3"></div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-right">
                             <thead class="bg-slate-900 text-amber-400 text-[10px]">
@@ -3669,6 +3687,7 @@
                                     <th class="p-2 text-center text-emerald-400">حاضر</th>
                                     <th class="p-2 text-center text-rose-400">غائب</th>
                                     <th class="p-2 text-center text-amber-400">مجاز</th>
+                                    <th class="p-2 text-center text-violet-400">هروب</th>
                                     <th class="p-2 text-center">نسبة الالتزام</th>
                                 </tr>
                             </thead>
@@ -4060,7 +4079,7 @@
             if (classFilterVal !== 'all') filtered = filtered.filter(student => reportStudentMatchesClass(student, classFilterVal));
             filtered = filterStudentsForAttendanceSubject(filtered, selectedSubject, classFilterVal, dateVal, dateVal);
 
-            let presentCount = 0, absentCount = 0, excusedCount = 0;
+            let presentCount = 0, absentCount = 0, excusedCount = 0, escapedCount = 0;
             let targetStudents = [];
             filtered.forEach(student => {
                 const status = getStudentStatusForReportDate(student, dateVal, selectedSubject, classFilterVal);
@@ -4071,6 +4090,9 @@
                 } else if (status === 'مجاز') {
                     excusedCount++;
                     targetStudents.push({ ...student, currentStatus: 'مجاز' });
+                } else if (status === 'هروب') {
+                    escapedCount++;
+                    targetStudents.push({ ...student, currentStatus: 'هروب' });
                 }
             });
 
@@ -4079,6 +4101,7 @@
                 <div class="p-2.5 bg-emerald-50 rounded-2xl border border-emerald-200"><span class="block text-emerald-700 text-lg font-black">${presentCount}</span><span class="text-[10px] text-slate-500 font-bold">عدد الحضور</span></div>
                 <div class="p-2.5 bg-rose-50 rounded-2xl border border-rose-200"><span class="block text-rose-700 text-lg font-black">${absentCount}</span><span class="text-[10px] text-slate-500 font-bold">عدد الغياب</span></div>
                 <div class="p-2.5 bg-amber-50 rounded-2xl border border-amber-200"><span class="block text-amber-700 text-lg font-black">${excusedCount}</span><span class="text-[10px] text-slate-500 font-bold">عدد المجازين</span></div>
+                <div class="p-2.5 bg-violet-50 rounded-2xl border border-violet-200"><span class="block text-violet-700 text-lg font-black">${escapedCount}</span><span class="text-[10px] text-slate-500 font-bold">عدد الهروب</span></div>
             `;
 
             if (searchKey) targetStudents = targetStudents.filter(student => String(student.name || '').toLowerCase().includes(searchKey));
@@ -4087,10 +4110,10 @@
                 <tr class="border-b border-slate-100 text-[11px]">
                     <td class="p-2 font-bold text-center">${index + 1}</td>
                     <td class="p-2 font-bold text-slate-800">${student.name}</td>
-                    <td class="p-2 text-center"><span class="px-3 py-0.5 rounded-full text-[10px] font-black ${student.currentStatus === 'غائب' ? 'bg-rose-100 text-rose-800 border border-rose-300' : 'bg-amber-100 text-amber-800 border border-amber-300'}">${student.currentStatus}</span></td>
+                    <td class="p-2 text-center"><span class="px-3 py-0.5 rounded-full text-[10px] font-black ${student.currentStatus === 'غائب' ? 'bg-rose-100 text-rose-800 border border-rose-300' : student.currentStatus === 'هروب' ? 'bg-violet-100 text-violet-800 border border-violet-300' : 'bg-amber-100 text-amber-800 border border-amber-300'}">${student.currentStatus}</span></td>
                 </tr>
             `).join('');
-            document.getElementById('absence-list-report-body').innerHTML = rows || '<tr><td colspan="3" class="p-4 text-center text-xs font-bold text-emerald-600">لا يوجد أي طلاب غائبين أو مجازين مسجلين في هذا التاريخ</td></tr>';
+            document.getElementById('absence-list-report-body').innerHTML = rows || '<tr><td colspan="3" class="p-4 text-center text-xs font-bold text-emerald-600">لا يوجد طلاب غائبون أو مجازون أو مسجل عليهم هروب في هذا التاريخ</td></tr>';
         }
 
         // 2. تقرير حضور يومي
@@ -4124,7 +4147,7 @@
             const selectedSubject = getSelectedReportSubject();
             let rows = filtered.map((s, i) => {
                 const status = getStudentStatusForReportDate(s, selDate, selectedSubject, classFilterVal);
-                let statusBadge = status === 'حاضر' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : status === 'غائب' ? 'bg-rose-100 text-rose-800 border-rose-300' : status === 'مجاز' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-600 border-slate-300';
+                let statusBadge = status === 'حاضر' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : status === 'غائب' ? 'bg-rose-100 text-rose-800 border-rose-300' : status === 'هروب' ? 'bg-violet-100 text-violet-800 border-violet-300' : status === 'مجاز' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-600 border-slate-300';
                 
                 return `
                     <tr class="border-b border-slate-100 text-[11px]">
@@ -4171,7 +4194,8 @@
                         (!fromDate || String(log.date || '') >= fromDate) && (!toDate || String(log.date || '') <= toDate));
                     metrics = createAttendanceMetrics(0, logs.filter(log => log.status === 'غائب').length,
                         logs.filter(log => log.status === 'مجاز').length,
-                        logs.filter(log => log.status === 'غائب' || log.status === 'مجاز'), {});
+                        logs.filter(log => log.status === 'غائب' || log.status === 'مجاز' || log.status === 'هروب'),
+                        { escapedCount: logs.filter(log => log.status === 'هروب').length });
                 }
                 const total = metrics.totalLectures || 0;
                 const rate = total ? Math.round((metrics.attendanceCount / total) * 100) : 0;
@@ -4182,12 +4206,13 @@
                         <td class="p-2 text-center font-black text-emerald-600">${metrics.attendanceCount}</td>
                         <td class="p-2 text-center font-black text-rose-600">${metrics.absentCount}</td>
                         <td class="p-2 text-center font-black text-amber-600">${metrics.excusedCount}</td>
+                        <td class="p-2 text-center font-black text-violet-700">${metrics.escapedCount || 0}</td>
                         <td class="p-2 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${rate >= 85 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">${rate}%</span></td>
                     </tr>
                 `;
             }).join('');
 
-            document.getElementById('att-monthly-report-body').innerHTML = rows || '<tr><td colspan="6" class="p-3 text-center text-xs text-slate-400">لا يوجد طلبة مطابقين للشروط</td></tr>';
+            document.getElementById('att-monthly-report-body').innerHTML = rows || '<tr><td colspan="7" class="p-3 text-center text-xs text-slate-400">لا يوجد طلبة مطابقين للشروط</td></tr>';
         }
 
         // 4. تقرير درجات الفصل المحدد
@@ -4513,7 +4538,8 @@
                     return createAttendanceMetrics(sessionMetrics.attendanceCount,
                         Math.max(sessionMetrics.absentCount, mergedLogs.filter(log => log.status === 'غائب').length),
                         Math.max(sessionMetrics.excusedCount, mergedLogs.filter(log => log.status === 'مجاز').length),
-                        mergedLogs, { hasSessionRecords: sessionMetrics.hasSessionRecords, hasApplicableSessions: true });
+                        mergedLogs, { hasSessionRecords: sessionMetrics.hasSessionRecords, hasApplicableSessions: true,
+                            escapedCount: Math.max(sessionMetrics.escapedCount || 0, mergedLogs.filter(log => log.status === 'هروب').length) });
                 }
                 if ((appState.savedSessions || []).length === 0) return legacy;
                 return createAttendanceMetrics(0, legacy.absentCount, legacy.excusedCount, legacy.attendanceLogs, {});
@@ -4529,7 +4555,8 @@
                 Math.max(legacy.absentCount, sessionMetrics.absentCount, mergedLogs.filter(log => log.status === 'غائب').length),
                 Math.max(legacy.excusedCount, sessionMetrics.excusedCount, mergedLogs.filter(log => log.status === 'مجاز').length),
                 mergedLogs,
-                { hasSessionRecords: sessionMetrics.hasSessionRecords, hasApplicableSessions: sessionMetrics.hasApplicableSessions }
+                { hasSessionRecords: sessionMetrics.hasSessionRecords, hasApplicableSessions: sessionMetrics.hasApplicableSessions,
+                    escapedCount: Math.max(legacy.escapedCount || 0, sessionMetrics.escapedCount || 0, mergedLogs.filter(log => log.status === 'هروب').length) }
             );
         }
 
@@ -4720,7 +4747,7 @@
                     <td class="p-1.5 text-center font-bold">${idx+1}</td>
                     <td class="p-1.5 text-center font-bold text-slate-700">${log.day || 'يوم الدرس'}</td>
                     <td class="p-1.5 text-center text-slate-600">${log.date}</td>
-                    <td class="p-1.5 text-center"><span class="px-2 py-0.5 rounded-full font-extrabold ${log.status === 'غائب' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}">${log.status}</span></td>
+                    <td class="p-1.5 text-center"><span class="px-2 py-0.5 rounded-full font-extrabold ${log.status === 'غائب' ? 'bg-rose-100 text-rose-800' : log.status === 'هروب' ? 'bg-violet-100 text-violet-800' : 'bg-amber-100 text-amber-800'}">${log.status}</span></td>
                 </tr>
             `).join('');
             
@@ -4732,7 +4759,7 @@
                     </div>
                     <span class="text-[10px] bg-white/10 px-2.5 py-1 rounded-full font-bold">معرّف: #${st.id}</span>
                 </div>
-                <div class="grid grid-cols-3 gap-2 text-center text-xs font-bold mb-3">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs font-bold mb-3">
                     <div class="p-2.5 bg-emerald-50 rounded-2xl border border-emerald-200">
                         <span class="block text-emerald-700 text-base font-black">${subjectMetrics.attendanceCount || 0}</span>
                         <span class="text-[9px] text-slate-500">دروس حضور</span>
@@ -4745,11 +4772,15 @@
                         <span class="block text-amber-700 text-base font-black">${subjectMetrics.excusedCount || 0}</span>
                         <span class="text-[9px] text-slate-500">إجازات رسمية</span>
                     </div>
+                    <div class="p-2.5 bg-violet-50 rounded-2xl border border-violet-200">
+                        <span class="block text-violet-700 text-base font-black">${subjectMetrics.escapedCount || 0}</span>
+                        <span class="text-[9px] text-slate-500">حالات هروب</span>
+                    </div>
                 </div>
                 <div class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
                     <h5 class="font-bold text-xs text-slate-800 mb-2 flex items-center gap-1.5">
                         <i class="fa-solid fa-calendar-xmark text-rose-500"></i>
-                        <span>سجل وأيام وتواريخ الغيابات والإجازات بالتفصيل:</span>
+                        <span>سجل وأيام وتواريخ الغيابات والإجازات والهروب بالتفصيل:</span>
                     </h5>
                     <table class="w-full text-right">
                         <thead class="bg-slate-200 text-slate-700 text-[9px]">
